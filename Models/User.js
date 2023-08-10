@@ -1,6 +1,11 @@
 const mongoose = require('mongoose')
 
 const User = new mongoose.Schema({
+    msId: {
+        type: String,
+        required: true,
+        default: "None",
+      },
     clubs:{
         type: [mongoose.Schema.ObjectId],
         required: false

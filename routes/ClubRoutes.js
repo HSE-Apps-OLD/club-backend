@@ -3,6 +3,7 @@ const router = express.Router()
 const mongoose = require('mongoose')
 const axios = require('axios')
 const dotenv = require('dotenv')
+
 dotenv.config()
 
 const Club = require('../Models/Club')
@@ -38,7 +39,7 @@ router.get('/' , async (req, res) => {
 
 // * Returns single club
 
-router.get('/:clubURL',clubRole(),async(req,res) => {
+router.get('/:clubURL',auth(),clubRole(),async(req,res) => {
     try {
 
         const {club} = res.locals
@@ -55,7 +56,7 @@ router.get('/:clubURL',clubRole(),async(req,res) => {
 
 // * Returns all members of a club as HSE Key Users 
 
-router.get('/:clubURL/members', clubRole(), async(req,res) => {
+router.get('/:clubURL/members', auth(),clubRole(), async(req,res) => {
     try {
 
         const {club} = res.locals
@@ -69,7 +70,7 @@ router.get('/:clubURL/members', clubRole(), async(req,res) => {
 
     } catch (error) {
 
-        console.log(error)
+        console.log("failed to get all members of the")
         res.status(500).json({'errors': [{"msg": "Server Error"}]})
 
     }
@@ -135,7 +136,8 @@ router.get('/:clubURL/announcement', auth(), clubRole({authLevel: 'member'}),  a
 
 
     } catch (err) {
-
+        console.log(err)
+        return res.status(500).json({'errors': [{"msg": "Server Error"}]})
     }
 })
 
@@ -160,49 +162,58 @@ router.put('/:clubURL/announcement', auth(), clubRole({authLevel: 'member'}),  a
 
 // * User requests to join / joins club
 
-router.post('/:clubURL/members/', auth(),clubRole(), async (req, res) => {
-
-    try{
-
+router.post("/:clubURL/members/", auth(), clubRole(), async (req, res) => {
+    try {
         const {requester, club} = res.locals
+      const msId = req.body.msId; // Extract the string from the request body
 
-        const user = await User.findById(requester._id)
+      if(!msId){
+        return res.status(400).json({'errors': [{"msg": "Please Login"}]})
+      }
+   
+      const user = await User.findOne({
+        msId: msId
+      });
+  
+    
 
-        if(inClub(club, requester._id)){
-            return res.status(400).json({'errors': [{"msg": "Already in club"}]})
-        } else if(isRole('applicant',club, requester._id)){
-            return res.status(400).json({'errors': [{"msg": "Application pending"}]})
-        }
-
-        if(club.settings.autoJoin){
-            
-            user.clubs.push( new mongoose.Types.ObjectId(club._id))
-            club.members.push(new mongoose.Types.ObjectId(requester._id))
-
-        } else {
-            
-            user.pendingClubs.push( new mongoose.Types.ObjectId(club._id))
-            club.applicants.push(new mongoose.Types.ObjectId(requester._id))
-
-        }
-
-        user.save()
-        club.save()
-
-        res.json(club)
-
-    } catch(err) {
-
-        console.log(err)
-        return res.status(500).json({'errors': [{"msg": "Server Error"}]})
-
-
+    
+      if(inClub(club, user.msId)){
+        return res.status(400).json({'errors': [{"msg": "Already in club"}]})
+    } else if(isRole('applicant',club, user.msId)){
+        return res.status(400).json({'errors': [{"msg": "Application pending"}]})
     }
 
-})
+    
+    user.clubs.push( new mongoose.Types.ObjectId(club._id))
+    console.log(user.msId)
+    club.members.push(user.msId.toString())
+      
+    // if(club.settings.autoJoin){
+            
+    //     user.clubs.push( new mongoose.Types.ObjectId(club._id))
+    //     club.members.push(new mongoose.Types.ObjectId(user._id))
+
+    // } else {
+        
+    //     user.pendingClubs.push( new mongoose.Types.ObjectId(club._id))
+    //     club.applicants.push(new mongoose.Types.ObjectId(user._id))
+
+    // }
+      
+  
+      user.save();
+      club.save();
+  
+      res.json(club);
+     } catch (err) {
+       console.log("didnot work");
+      return res.status(500).json({ errors: [{ msg: "Server Error" }] });
+    }
+  });
+  
 
 // Accepts member into club
-
 router.put('/:clubURL/members/:id/accept', auth(), clubRole({authLevel: "officer"}), async (req, res) => {
 
     try{
@@ -342,40 +353,51 @@ router.delete('/:clubURL/members/:id', auth(),clubRole({authLevel: "officer"}), 
 
 
 // User leave route 
-router.delete('/:clubURL/members/', auth(),clubRole({authLevel: 'member'}), async (req, res) => {
+router.delete('/:clubURL/members/', auth(), async (req, res, next) => {
+    // Extract the user ID from the header
+    const userId = req.headers['x-user-id'];
+    
+    // Attach the user ID to the request object
+    req.userId = userId;
 
-    try{
+    // Call the clubRole middleware with the modified request object
+    clubRole({authLevel: 'member'})(req, res, next);
+}, async (req, res) => {
+    try {
 
         const {club, requester} = res.locals
-
-        const {_id : idToLeave} = requester
-        
-        if(isRole('sponsor', club, idToLeave)){
+        const msId = req.userId;
+        console.log(msId);
+    
+        if (isRole('sponsor', club, msId)) {
             console.log('sponsor')
             return res.status(400).json({'errors': [{"msg": "You can't leave as a sponsor"}]})
         }
+        
+       
 
-
-        const user = await User.findById(idToLeave)
+        const user = await User.findOne({
+            msId: msId
+          });
 
         user.clubs = user.clubs.filter((clubID) => !club._id.equals(clubID))
 
-        club.members = club.members.filter((memberId) => !memberId.equals(idToLeave))
-        club.officers = club.officers.filter((memberId) => !memberId.equals(idToLeave))
+        club.members = club.members.filter((memberId) => !(memberId ==msId))
+        club.officers = club.officers.filter((memberId) => !(memberId == msId))
 
         user.save()
         club.save()
 
         res.json(club)
 
-    } catch(err) {
+    } catch (err) {
 
         console.log(err)
         return res.status(500).json({'errors': [{"msg": "Server Error"}]})
 
     }
+});
 
-})
 
 // Toggle SMS for self user
 
@@ -484,12 +506,12 @@ router.put('/:clubURL', auth(), clubRole({authLevel: "officer"}), async (req,res
 router.post('/', 
     auth(),
     [
-        body('name').notEmpty().withMessage("Please enter a club name"),
-        body('url').notEmpty().withMessage("Please enter a URL").custom((value, {res}) => value.indexOf(" ") == -1).withMessage("Club ID must not contain spaces"),
-        body('description').notEmpty().withMessage("Please enter a description"),
-        body('color').isHexColor().withMessage("Please use a valid color"),
-        body("tagline").notEmpty().withMessage("Please enter a tagline").isLength({max: 100}).withMessage("Your tagline must be less than 100 characters"),
-        body('getInvolved').notEmpty().withMessage("Please tell us how students should get involved")
+        body('form.name').notEmpty().withMessage("Please enter a club name"),
+        body('form.url').notEmpty().withMessage("Please enter a URL").custom((value, {req}) => value.indexOf(" ") == -1).withMessage("Club ID must not contain spaces"),
+        body('form.description').notEmpty().withMessage("Please enter a description"),
+        body('form.color').isHexColor().withMessage("Please use a valid color"),
+        body("form.tagline").notEmpty().withMessage("Please enter a tagline").isLength({max: 100}).withMessage("Your tagline must be less than 100 characters"),
+        body('form.getInvolved').notEmpty().withMessage("Please tell us how students should get involved")
     ],
     async (req,res) => {
 
@@ -500,17 +522,19 @@ router.post('/',
         }
 
         const {requester} = res.locals
-        const{name, description, getInvolved, url, color, tags, tagline, settings, logo, contact} = req.body
+        const msId = req.body.msId; // Extract the msId from the request body
+        const { name, description, getInvolved, url, color, tags, tagline, settings, logo, contact } = req.body.form; // Extract the form data from the request body
 
         if(tags.length == 0){
             return res.status(400).json({'errors': [{"msg": "Please add tags to make your club easily searchable"}]})
         }
 
-        if(requester.role == "student"){
-            return res.status(400).json({'errors': [{"msg": "You can't create a club as a student yet"}]})
-        }
+        // if(requester.role == "student"){
+        //     return res.status(400).json({'errors': [{"msg": "You can't create a club as a student yet"}]})
+        // }
 
         try{
+      
             const nameUsed = await Club.findOne({name: name})
             const urlUsed = await Club.findOne({url: url})
 
@@ -519,8 +543,10 @@ router.post('/',
             } else if (urlUsed){
                 return res.status(400).json({'errors': [{"msg": "Club URL has already been used"}]})
             } else {
-                const clubs = await new Club({name, description,getInvolved,sponsors: [new mongoose.Types.ObjectId(requester._id)], url: url, color, tags,tagline, settings, logo, contact})
-                const user = await User.findById(requester._id)
+                const clubs = await new Club({name, description, getInvolved, sponsors: [msId.toString()], url: url, color, tags, tagline, settings, logo, contact})
+                
+                const user = await User.findOne({msId: msId});
+  
                 user.clubs.push(clubs._id)
                 user.save()
                 clubs.save()
@@ -531,6 +557,7 @@ router.post('/',
             return res.status(500).json({'errors': [{"msg": "Server Error"}]})
         }
 })
+
 
 
 router.delete('/:clubURL', auth(), clubRole({authLevel: 'sponsor'}), async(req, res) => {

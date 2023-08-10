@@ -8,7 +8,7 @@ dotenv.config()
 
 
 const {config} = require('./config')
-console.log(config)
+console.log(config) 
 
 const PORT = process.env.PORT || 3005
 

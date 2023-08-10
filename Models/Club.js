@@ -20,7 +20,7 @@ const Club = new mongoose.Schema({
         default: "https://storage.cloud.google.com/hse-key-bucket/default.png"
     },
     sponsors:{
-        type: [mongoose.Schema.Types.ObjectId],
+        type: [String],
         default: []
     },
     status:{
@@ -29,7 +29,7 @@ const Club = new mongoose.Schema({
         default: 'application'
     },
     members:{
-        type: [mongoose.Schema.ObjectId],
+        type: [String],
         default: []
     },
     contact: {
